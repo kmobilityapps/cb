@@ -1,108 +1,85 @@
-//  OpenShift sample Node application
 var express = require('express'),
-    app     = express(),
-    morgan  = require('morgan');
-    
-Object.assign=require('object-assign')
+  app = express(),
+  port = process.env.PORT || 3000;
 
-app.engine('html', require('ejs').renderFile);
-app.use(morgan('combined'))
+const bodyParser = require('body-parser');
+/** bodyParser.urlencoded(options)
+ * Parses the text as URL encoded data (which is how browsers tend to send form data from regular forms set to POST)
+ * and exposes the resulting object (containing the keys and values) on req.body
+ */
+app.use(bodyParser.urlencoded({
+  extended: true
+}));
 
-var port = process.env.PORT || process.env.OPENSHIFT_NODEJS_PORT || 8080,
-    ip   = process.env.IP   || process.env.OPENSHIFT_NODEJS_IP || '0.0.0.0',
-    mongoURL = process.env.OPENSHIFT_MONGODB_DB_URL || process.env.MONGO_URL,
-    mongoURLLabel = "";
+/**bodyParser.json(options)
+* Parses the text as JSON and exposes the resulting object on req.body.
+*/
+app.use(bodyParser.json());
 
-if (mongoURL == null && process.env.DATABASE_SERVICE_NAME) {
-  var mongoServiceName = process.env.DATABASE_SERVICE_NAME.toUpperCase(),
-      mongoHost = process.env[mongoServiceName + '_SERVICE_HOST'],
-      mongoPort = process.env[mongoServiceName + '_SERVICE_PORT'],
-      mongoDatabase = process.env[mongoServiceName + '_DATABASE'],
-      mongoPassword = process.env[mongoServiceName + '_PASSWORD']
-      mongoUser = process.env[mongoServiceName + '_USER'];
 
-  if (mongoHost && mongoPort && mongoDatabase) {
-    mongoURLLabel = mongoURL = 'mongodb://';
-    if (mongoUser && mongoPassword) {
-      mongoURL += mongoUser + ':' + mongoPassword + '@';
-    }
-    // Provide UI label that excludes user id and pw
-    mongoURLLabel += mongoHost + ':' + mongoPort + '/' + mongoDatabase;
-    mongoURL += mongoHost + ':' +  mongoPort + '/' + mongoDatabase;
+var fs = require("fs");
 
-  }
+const request = require("request");
+
+var NLTunnel = require('node-local-tunnel');
+    var options = {
+      localBase : 'localhost:3000'
+    };
+    NLTunnel.client(options);
+
+
+
+app.get('/listUsers', function (req, res) {
+
+    res.json({ text: 'You have successfully integrated this API from AKs Laptop! '});
+   
+ })
+
+ app.post('/test', function (req, res) {
+    console.log(req.body.queryResult.parameters);
+    console.log(req.body.queryResult['queryText']);
+    var fulfillmentText = req.body.queryResult.fulfillmentText;
+    console.log(fulfillmentText);
+    /*request.get('http://localhost:3000/listUsers', function(error, response, body) {  
+        //console.log('Inside GET');
+        output = JSON.parse(body).text;
+        //console.dir(output);
+        res.json({ fulfillmentText: output });
+   });*/
+
+   var api_method = req.body.queryResult.parameters.api_method;
+   var api_service = req.body.queryResult.parameters.api_service;
+   var api_object = req.body.queryResult.parameters.api_object;
+   var api_add_info = req.body.queryResult.parameters.api_add_info;
+
+   var value;
+   value = getValues(api_method, api_service, api_object, api_add_info);
+
+   //fulfillmentText = fulfillmentText.replace('&api_value', value);
+   res.json({ fulfillmentText: "success" });
+
+ })
+
+
+function getValues(api_method, api_service, api_object, api_add_info){
+  var serviceURL = 'http://52.172.47.237:8086/mpaServiceV3';
+  var parameters = '?portfolioId=1&programId=1&projectId=1&dataDate=30-Apr-2017&chartType=subpacakgeProgress';
+  var access_token = '&access_token=d1980e8c-3b3f-4da0-aed2-7dc3e138ec76';
+  var finalURL = serviceURL + '/' + api_service + parameters + access_token;
+  var api_value;
+  console.log('Final URL is ' + finalURL);
+  request.get(finalURL, function(error, response, body) {  
+        api_value = JSON.parse(body).resObject[0][api_object];
+        console.log('Cumulative Progress is ' + api_value);
+        //res.json({ fulfillmentText: 'test' });
+   });
+
+  return api_value;
 }
-var db = null,
-    dbDetails = new Object();
+ 
+app.listen(port);
 
-var initDb = function(callback) {
-  if (mongoURL == null) return;
+console.log('cbwebhook RESTful API server started on: ' + port);
 
-  var mongodb = require('mongodb');
-  if (mongodb == null) return;
 
-  mongodb.connect(mongoURL, function(err, conn) {
-    if (err) {
-      callback(err);
-      return;
-    }
 
-    db = conn;
-    dbDetails.databaseName = db.databaseName;
-    dbDetails.url = mongoURLLabel;
-    dbDetails.type = 'MongoDB';
-
-    console.log('Connected to MongoDB at: %s', mongoURL);
-  });
-};
-
-app.get('/', function (req, res) {
-  // try to initialize the db on every request if it's not already
-  // initialized.
-  if (!db) {
-    initDb(function(err){});
-  }
-  if (db) {
-    var col = db.collection('counts');
-    // Create a document with request IP and current time of request
-    col.insert({ip: req.ip, date: Date.now()});
-    col.count(function(err, count){
-      if (err) {
-        console.log('Error running count. Message:\n'+err);
-      }
-      res.render('index.html', { pageCountMessage : count, dbInfo: dbDetails });
-    });
-  } else {
-    res.render('index.html', { pageCountMessage : null});
-  }
-});
-
-app.get('/pagecount', function (req, res) {
-  // try to initialize the db on every request if it's not already
-  // initialized.
-  if (!db) {
-    initDb(function(err){});
-  }
-  if (db) {
-    db.collection('counts').count(function(err, count ){
-      res.send('{ pageCount: ' + count + '}');
-    });
-  } else {
-    res.send('{ pageCount: -1 }');
-  }
-});
-
-// error handling
-app.use(function(err, req, res, next){
-  console.error(err.stack);
-  res.status(500).send('Something bad happened!');
-});
-
-initDb(function(err){
-  console.log('Error connecting to Mongo. Message:\n'+err);
-});
-
-app.listen(port, ip);
-console.log('Server running on http://%s:%s', ip, port);
-
-module.exports = app ;
